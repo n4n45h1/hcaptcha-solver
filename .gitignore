@@ -1,0 +1,6 @@
+node_modules/
+proxy.txt
+.env
+*.webm
+*.log
+__pycache__/

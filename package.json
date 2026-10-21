@@ -1,0 +1,19 @@
+{
+  "name": "hcaptcha-solver",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Browser-driven hCaptcha solver: stealth Chromium + VLM (grid/SoM/drag) -> P1_ token",
+  "main": "solver/solver.js",
+  "scripts": {
+    "start": "node solver/solver.js"
+  },
+  "dependencies": {
+    "playwright": "^1.58.2",
+    "playwright-extra": "^4.3.6",
+    "puppeteer-extra-plugin-stealth": "^2.11.2"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "license": "MIT"
+}
