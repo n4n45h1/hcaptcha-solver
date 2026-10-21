@@ -1,12 +1,12 @@
-"""Draw labeled coordinate grid on screenshot. Prints cell centers JSON.
-Usage: grid_overlay.py in.png out.png [cols] [rows] -> {"cols":8,"rows":8,"cells":{"A1":[x,y],...}} (0-1000)."""
+"""スクリーンショットにラベル付き座標グリッドを描き、セル中心を JSON で出力。
+使い方: grid_overlay.py in.png out.png [cols] [rows] -> {"cols":8,"rows":8,"cells":{"A1":[x,y],...}}（0-1000）。"""
 import sys, json
 from PIL import Image, ImageDraw
 def main(inp, outp, cols=8, rows=8, margin=0.05):
     img = Image.open(inp).convert('RGB')
     W,H = img.size
     d = ImageDraw.Draw(img)
-    # grid area inset by margin on all sides (keeps labels off prompt text)
+    # グリッド領域を全辺から margin 分内側に寄せる（ラベルがプロンプトに重ならないように）
     gx0, gy0 = margin*W, margin*H
     gw, gh = (1-2*margin)*W, (1-2*margin)*H
     cells = {}
@@ -16,14 +16,14 @@ def main(inp, outp, cols=8, rows=8, margin=0.05):
             cx = (gx0 + (ci+0.5)/cols*gw)/W*1000
             cy = (gy0 + (ri+0.5)/rows*gh)/H*1000
             cells[L] = [round(cx,1), round(cy,1)]
-    # grid lines (inside inset area only)
+    # グリッド線（余白の内側だけ）
     for ci in range(1, cols):
         x = gx0 + ci/cols*gw
         d.line([x,gy0,x,gy0+gh], fill=(255,0,0), width=1)
     for ri in range(1, rows):
         y = gy0 + ri/rows*gh
         d.line([gx0,y,gx0+gw,y], fill=(255,0,0), width=1)
-    # labels: columns above grid area, rows left of grid area
+    # ラベル: 列はグリッドの上、行は左に配置
     for ci in range(cols):
         L = chr(65+ci)
         x = gx0 + (ci+0.5)/cols*gw

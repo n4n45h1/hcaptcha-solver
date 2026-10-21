@@ -1,12 +1,12 @@
-"""Prompt classifier: normalize hCaptcha prompt -> challenge type + solver route.
-Usage: prompt_classify.py "prompt text" -> {"type": "drag_letter", "solver": "som_drag", ...}
+"""プロンプト分類: hCaptcha のプロンプトをチャレンジ種別とソルバーの振り分け先に正規化。
+使い方: prompt_classify.py "prompt text" -> {"type": "drag_letter", "solver": "som_drag", ...}
 """
 import sys
 import json
 import re
 
 RULES = [
-    # (type, solver, patterns)
+    # （種別、ソルバー、パターン）
     ("drag_letter", "som_drag", [
         r"drag.*letter", r"letter.*fits", r"place.*fits",
     ]),

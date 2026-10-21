@@ -1,9 +1,9 @@
-"""Empty-cell guard: check if a grid cell actually contains an object.
-Usage: cell_guard.py image.png
-  Reads cells JSON from stdin: {"cells": {"B2": [x,y], ...}, "img_w": W, "img_h": H}
-  Prints JSON: {"B2": {"has_content": true, "score": 0.87}, ...}
+"""空セルガード: グリッドのセルに実際に物体があるか確認。
+使い方: cell_guard.py image.png
+  標準入力からセル情報の JSON を読む: {"cells": {"B2": [x,y], ...}, "img_w": W, "img_h": H}
+  JSON を出力: {"B2": {"has_content": true, "score": 0.87}, ...}
 
-A cell "has content" if it differs enough from blank background:
+空の背景との差が十分あれば「中身あり」と判定:
   score = saturation_mean * variance_norm * nonwhite_ratio
 """
 import sys
@@ -13,7 +13,7 @@ from PIL import Image
 
 
 def cell_has_content(img_arr, cx, cy, cell_w, cell_h, thresh=0.08):
-    """Check 0-1000 center coords + cell size (0-1000 units)."""
+    """中心座標とセルサイズ（どちらも 0-1000 単位）で中身を確認。"""
     H, W, _ = img_arr.shape
     px = int(cx / 1000 * W)
     py = int(cy / 1000 * H)
@@ -26,16 +26,16 @@ def cell_has_content(img_arr, cx, cy, cell_w, cell_h, thresh=0.08):
     crop = img_arr[y0:y1, x0:x1].astype(float)
     if crop.size == 0:
         return {"has_content": False, "score": 0.0}
-    # saturation per pixel: (max-min)/max
+    # ピクセルごとの彩度: (max-min)/max
     mx = crop.max(axis=2)
     mn = crop.min(axis=2)
     sat = np.where(mx > 0, (mx - mn) / np.maximum(mx, 1), 0)
     sat_mean = float(sat.mean())
-    # variance (grayscale std, normalized 0-1)
+    # ばらつき（グレースケールの標準偏差を 0-1 に正規化）
     gray = crop.mean(axis=2)
     var_norm = float(gray.std() / 128.0)
     var_norm = min(1.0, var_norm)
-    # non-white ratio (pixels where not all channels > 235)
+    # 白以外の割合（全チャンネルが 235 超ではないピクセル）
     nonwhite = float(((crop < 235).any(axis=2)).mean())
     score = sat_mean * var_norm * nonwhite
     return {"has_content": bool(score >= thresh), "score": round(score, 4)}
@@ -49,7 +49,7 @@ def main():
     H, W, _ = arr.shape
     cells = spec["cells"]
     if "grid" in spec:
-        # smart_grid spec: derive cell size from neighbor distances (nonzero only)
+        # smart_grid の仕様: 隣接点の距離からセルサイズを求める（距離 0 は除外）
         pts = list(cells.values())
         dxs, dys = [], []
         for i, (x1, y1) in enumerate(pts):

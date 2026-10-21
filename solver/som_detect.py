@@ -1,5 +1,5 @@
-"""Letter/slot detection v2: texture-suppress via grayscale open, drop giant bg.
-Usage: som_detect.py in.png out.png -> {"S":[...],"T":[...]} 0-1000."""
+"""文字・空き枠の検出 v2: グレースケールのオープニングでテクスチャを抑え、巨大な背景領域を除外。
+使い方: som_detect.py in.png out.png -> {"S":[...],"T":[...]}（0-1000）。"""
 import sys, json
 import numpy as np
 from PIL import Image, ImageDraw, ImageFilter
@@ -31,7 +31,7 @@ def main(inp, outp):
     zone = np.zeros((H,W), bool); zone[int(H*0.27):int(H*0.86), int(W*0.05):int(W*0.95)] = True
     solid = zone & (opened < 100) & (sat > 0.12)
     allc = comps(solid)
-    allc = [c for c in allc if c[2] < 0.25*W*H]  # drop giant bg
+    allc = [c for c in allc if c[2] < 0.25*W*H]  # 巨大な背景領域を除外
     mg=[]
     for c in sorted(allc,key=lambda c:-c[2]):
         for m in mg:
@@ -49,7 +49,7 @@ def main(inp, outp):
     for c in cands: c["role"] = "T" if c["fill"]<0.30 else "S"
     ss=[c for c in cands if c["role"]=="S"][:5]
     ts=[c for c in cands if c["role"]=="T"][:4]
-    # thin-stroke slot scan on original (outlines): low fill but bigger
+    # 元画像の細線の空き枠（輪郭）を走査: 充填率は低いがサイズは大きい
     res={"S":[{"id":f"S{i+1}","x":round(c["x"]),"y":round(c["y"])} for i,c in enumerate(ss)],
            "T":[{"id":f"T{i+1}","x":round(c["x"]),"y":round(c["y"])} for i,c in enumerate(ts)]}
     d = ImageDraw.Draw(img)

@@ -1,89 +1,78 @@
 # hcaptcha-solver
 
-Browser-driven hCaptcha solver. Stealth Chromium opens the target page, classifies the
-challenge, uses a VLM for cell / candidate selection, then returns the `P1_` token.
+ブラウザで問題を開いて、VLMに画像を見せて、クリックやドラッグまでやるsolver。
+Playwright + stealth Chromiumで動かして、通ったら `P1_` トークンを拾います。
 
-Normal (non-Enterprise) flow only.
+今はnormal版がメイン。まだ調整中なので、「どの問題でも一発で通る」感じではないです。
 
-## How it works
+## ざっくり構成
 
-```
-open page (stealth Chromium + proxy)
-  -> wait for challenge iframe
-  -> prompt classifier        solver_core.js : classifyPrompt()
-  -> per-type path
-       click_grid / click_single : smart_grid.py (image-aligned grid) + VLM cells
-                                   -> cell_guard.py drops empty cells
-       drag_letter               : som_detect.py candidate badges (S/T)
-                                   -> VLM pick -> brute-force queue
-       drag_shape (pattern)      : pattern_solver.py empty-cell + TOP/BOT candidates
-  -> mouse actions (bezier drag, click centers)
-  -> Verify button click      <-- required, most failures come from skipping this
-  -> read P1_ token from h-captcha-response / challenge-passed message
+```text
+ブラウザ起動 → 問題のiframeを待つ → 問題文からタイプを分類
+  click系   : マーカーやグリッドを重ねる → VLMで選択 → 空セルを除外
+  文字drag  : 文字と空き枠にS/Tラベル → VLMでペア選択 → 残りの候補も試す
+  pattern系 : 空セルと上下の候補を検出 → VLMで二択
+→ マウス操作 → Verify → トークン回収
 ```
 
-## Requirements
+ドラッグしただけでは終わらず、最後の **Verifyが必要**。ここを忘れるとずっと待つことになります。
 
-- Node 18+, Python 3.10+ (`pillow`, `numpy`)
-- Playwright Chromium (`npx playwright install chromium`); set `CHROME_PATH` if the
-  bundled revision does not match
-- An HTTPS proxy (residential recommended)
-- A vision endpoint exposing an OpenAI-compatible `/v1/chat/completions`
+## 動かす
 
-## Usage
+Node.js 18以上、Python 3.10以上が必要です。画像付きリクエストに対応したOpenAI互換APIも別途用意してください。APIの接続先は同梱していません。
 
 ```bash
 npm install
 pip install pillow numpy
+npx playwright install chromium
 
 export PROXY='http://user:pass@host:port'
 export TARGET='https://your-test-page.example/'
-export CHROME_PATH="$HOME/.cache/ms-playwright/chromium-1234/chrome-linux/chrome"
-node solver/solver.js
+export VL_API='https://your-vlm.example/v1/chat/completions'
+# 使うAPIで提供されているモデルIDを指定
+export VL_MODELS='your-vision-model'
+
+npm start
 ```
 
-Token is written to `TOKEN_OUT` (default `/tmp/selftest_token.txt`) and starts with `P1_`.
+トークンの出力先は `TOKEN_OUT`。デフォルトは `/tmp/selftest_token.txt` です。
+`.env.example` は設定項目の見本で、自動では読み込みません。シェルで環境変数を渡してください。
 
-### Environment
+## 設定
 
-| var | default | purpose |
+| 環境変数 | デフォルト | 用途 |
 |---|---|---|
-| `PROXY` | read `./proxy.txt` | proxy URL, one per line |
-| `TARGET` | bundled test tunnel | page that hosts the widget |
-| `TOKEN_OUT` | `/tmp/selftest_token.txt` | token output path |
-| `CHROME_PATH` | Playwright default | Chromium binary |
-| `VL_API` | freeapi endpoint | OpenAI-compatible chat completions URL |
-| `VL_MODELS` | `MiniMaxAI/MiniMax-M3,zai-org/GLM-5.3-Flash` | comma-separated model fallback list |
+| `PROXY` | `./proxy.txt` の先頭URL | プロキシ接続先 |
+| `PROXY_FILE` | `./proxy.txt` | `PROXY` を省略したときに読むファイル |
+| `TARGET` | 開発時のテスト用トンネル | widgetがあるページ。自分のURLを指定推奨 |
+| `TOKEN_OUT` | `/tmp/selftest_token.txt` | トークンの保存先 |
+| `CHROME_PATH` | Playwright標準 | Chromiumを手動指定するときのパス |
+| `VL_API` | なし・必須 | OpenAI互換のchat completions URL |
+| `VL_MODELS` | `MiniMaxAI/MiniMax-M3,zai-org/GLM-5.3-Flash` | モデルID。カンマ区切りで順に試す |
 
-`vl_solve.py` reads `VL_API` / `VL_MODELS` when set.
+Chromiumのバージョンが環境と合わないときは、`CHROME_PATH` で実体を指定できます。
+APIクライアントは現状、認証ヘッダーを付けない構成です。
 
-## Files
+## ファイル案内
 
-| file | role |
+| ファイル | やっていること |
 |---|---|
-| `solver/solver.js` | orchestrator: browser, challenge loop, verify, token capture |
-| `solver/solver_core.js` | prompt classifier, JSONL logging, candidate/VLM bridges |
-| `solver/smart_grid.py` | detects real grid lines, snaps labels to cells |
-| `solver/grid_overlay.py` | fixed 8x8 overlay (legacy path) |
-| `solver/cell_guard.py` | content score per cell, filters empty cells |
-| `solver/som_detect.py` | Set-of-Marks badges for drag letter / slot candidates |
-| `solver/pattern_solver.py` | pattern-completion candidate generator |
-| `solver/prompt_classify.py` | standalone prompt -> type classifier |
-| `solver/vl_solve.py` | VLM client, multi-image prompts, model fallback |
+| `solver/solver.js` | ブラウザ起動から問題処理、Verify、トークン回収までの本体 |
+| `solver/solver_core.js` | 問題文の分類、JSONLログ、画像処理とVLMのつなぎ |
+| `solver/smart_grid.py` | 画像に合わせてグリッドを重ね、セル中心を返す |
+| `solver/grid_overlay.py` | 固定8×8のグリッド。旧経路で使用 |
+| `solver/cell_guard.py` | セル内の色や変化量を見て、空っぽのセルを落とす |
+| `solver/som_detect.py` | ドラッグする文字と空き枠にS/Tラベルを付ける |
+| `solver/pattern_solver.py` | パターン問題の空セルと候補を拾う |
+| `solver/prompt_classify.py` | 問題文の分類を単体で試す用 |
+| `solver/vl_solve.py` | 画像付きAPIリクエストとモデルのフォールバック |
 
-## Notes
+## 今のところ
 
-- A `P1_` token is single-use and short-lived (~120 s).
-- The Verify button must be clicked after the drag/click actions; without it the
-  challenge never resolves.
-- Wrong answers consume rounds. Once the challenge stops rendering, start a fresh
-  browser context (new session, new proxy exit if possible).
-- Semantic prompts ("pick the thing that is soft and flexible") rely entirely on the
-  VLM's world knowledge; the empty-cell guard only removes structurally empty cells.
+- click系は動作確認済み。ただし、問題ごとの精度にはまだムラあり。
+- 文字dragは候補検出と総当たりキューまで実装済み。実戦での成功率は検証中。
+- pattern系は実装済み、突破は未確認。
+- 「柔らかくて曲がるものを選ぶ」みたいな意味理解はVLM頼み。空セルガードで答えの意味までは判定しません。
+- 誤答が続いて問題が出なくなったら、いったん新しいブラウザセッションでやり直す形です。
 
-## Status
-
-- click challenges: working
-- drag_letter: candidate detection + brute-force queue implemented, live success rate
-  still being measured
-- pattern (drag_shape): implemented, unverified
+トークンは一回限りで、寿命も短め（検証時は約120秒）。保存できたからといって、後でずっと使えるわけではないです。

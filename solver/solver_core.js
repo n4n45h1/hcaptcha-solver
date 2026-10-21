@@ -1,12 +1,12 @@
 'use strict';
 /**
- * Solver core: improved drag/grid logic for normal hCaptcha.
+ * ソルバーの中核: 通常の hCaptcha 向けにドラッグとグリッド処理を改善。
  *
- * - E1: prompt classification (delegated to prompt_classify.py, mirrored here for speed)
- * - A1: source detection (filled blobs = S, thin-stroke = T)
- * - A3: brute-force S×T with checkcaptcha judgment
- * - B1: empty-cell guard for grid clicks
- * - E2: JSONL attempt logging
+ * - E1: プロンプト分類（prompt_classify.py に委譲し、高速化のためここにも同じ処理を置く）
+ * - A1: ドラッグ元の検出（塗りつぶした塊 = S、細線 = T）
+ * - A3: checkcaptcha の判定で S×T を総当たり
+ * - B1: グリッドクリック用の空セルガード
+ * - E2: 試行ログを JSONL で記録
  */
 const fs = require('fs');
 const { execSync } = require('child_process');
@@ -33,7 +33,7 @@ function classifyPrompt(prompt) {
   return 'unknown';
 }
 
-// B1: check a 0-1000 cell has content via cell_guard.py
+// B1: cell_guard.py で 0-1000 座標のセルに中身があるか確認
 function checkCellsHaveContent(shotPath, cellsSpec) {
   try {
     const out = execSync(
@@ -42,11 +42,11 @@ function checkCellsHaveContent(shotPath, cellsSpec) {
     ).toString();
     return JSON.parse(out);
   } catch (e) {
-    return null; // guard unavailable -> allow all
+    return null; // ガードが使えなければ全セルを許可
   }
 }
 
-// A1 helper: run som_detect.py, returns {S:[...], T:[...]}
+// A1 ヘルパー: som_detect.py を実行し、{S:[...], T:[...]} を返す
 function detectDragCandidates(shotPath, overlayPath) {
   try {
     const out = execSync(
@@ -59,7 +59,7 @@ function detectDragCandidates(shotPath, overlayPath) {
   }
 }
 
-// VLM: pick which S matches which T (classification, not coords)
+// VLM: どの S がどの T に合うか選ぶ（座標指定ではなく分類）
 function vlmPickPair(shotPath, overlayPath, prompt, sources, targets) {
   const srcDesc = sources.map(s => `${s.id}@(${s.x},${s.y})`).join(' ');
   const tgtDesc = targets.map(t => `${t.id}@(${t.x},${t.y})`).join(' ');
@@ -72,7 +72,7 @@ function vlmPickPair(shotPath, overlayPath, prompt, sources, targets) {
     ).toString();
     const m = out.match(/"from"\s*:\s*"(S\d)"[^}]*"to"\s*:\s*"(T\d)"/i);
     if (m) return { from: m[1].toUpperCase(), to: m[2].toUpperCase(), raw: out.slice(0, 500) };
-  } catch (e) { /* fallthrough */ }
+  } catch (e) { /* 後続の処理へ */ }
   return null;
 }
 

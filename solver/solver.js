@@ -28,7 +28,7 @@ async function somBlobs(cf){
         for(const[dx,dy]of nb){ const nx=jx+dx,ny=jy+dy; if(nx<0||ny<0||nx>=sw||ny>=sh) continue; const k=ny*sw+nx; if(!seen[k]&&dark(k)){seen[k]=1;q.push(k);} } }
       if(nn>12) comps.push({x:sx/nn/sw, y:sy/nn/sh, n:nn});
     }
-    // merge <0.2 normalized dist
+    // 正規化距離が 0.2 未満なら統合
     comps.sort((a,b)=>b.n-a.n);
     const mg=[];
     for(const c of comps){ let hit=null;
@@ -129,7 +129,7 @@ function vlRaw(prompt){ fs.writeFileSync('/tmp/vl_prompt.txt', prompt);
     await page.waitForTimeout(5000);
     const ifr=await page.$('iframe[src*="frame=challenge"]'); const bb=await ifr.boundingBox();
     await page.screenshot({path:'/tmp/vl_shot.png', clip:bb});
-    // E1: classify prompt first, route to correct solver
+    // E1: まずプロンプトを分類して適切なソルバーに振り分ける
     const { classifyPrompt, logAttempt } = require(S+'/solver_core.js');
     const challengeType = classifyPrompt(prompt);
     console.log('TYPE:', challengeType);
@@ -143,13 +143,13 @@ function vlRaw(prompt){ fs.writeFileSync('/tmp/vl_prompt.txt', prompt);
     const isDragAct = isDrag || isPattern;
     const X = v => bb.x + v/1000*bb.width, Y = v => bb.y + v/1000*bb.height;
     if(challengeType === 'drag_letter'){
-      // A1+A3: detect S (filled) + T (thin-stroke slot), VLM picks pair, brute-force rest
+      // A1+A3: S（塗りつぶし）と T（細線の空き枠）を検出し、VLM が選んだペアから残りを総当たり
       const { detectDragCandidates, vlmPickPair } = require(S+'/solver_core.js');
       const det = detectDragCandidates('/tmp/vl_shot.png', '/tmp/som_overlay.png');
       console.log('DET S:', (det.S||[]).map(s=>s.id).join(','), 'T:', (det.T||[]).map(t=>t.id).join(','));
       logAttempt({ prompt, type: challengeType, det });
       let solved = false;
-      // build attempt order: VLM pick first, then remaining S×T combos
+      // 試行順を組む: VLM の選択を先頭に、残りの S×T の組み合わせを続ける
       let queue = [];
       if (det.S.length && det.T.length) {
         const pick = vlmPickPair('/tmp/vl_shot.png', '/tmp/som_overlay.png', prompt, det.S, det.T);
@@ -159,7 +159,7 @@ function vlRaw(prompt){ fs.writeFileSync('/tmp/vl_prompt.txt', prompt);
           if (!queue.some(q => q.from === s.id && q.to === t.id)) queue.push({ from: s.id, to: t.id });
         }
       }
-      queue = queue.slice(0, 5); // cap attempts (rqdata TTL on enterprise)
+      queue = queue.slice(0, 5); // 試行回数を制限（Enterprise の rqdata の TTL 対策）
       for (const att of queue) {
         const s = det.S.find(x => x.id === att.from);
         const t = det.T.find(x => x.id === att.to);
@@ -169,15 +169,15 @@ function vlRaw(prompt){ fs.writeFileSync('/tmp/vl_prompt.txt', prompt);
         await page.waitForTimeout(2500);
         const tokChk = await page.evaluate(()=>window.__hcToken||(()=>{const el=document.querySelector('textarea[name="h-captcha-response"]');return el?el.value:null;})()).catch(()=>null);
         if (tokChk && tokChk.length > 10) { solved = true; break; }
-        // check for try-again (wrong answer, keep going)
+        // try-again を確認（不正解なら続行）
         const retry = await cf.evaluate(()=>document.body.innerText.includes('try again')).catch(()=>false);
         logAttempt({ prompt, type: challengeType, attempt: att, tryAgain: retry });
-        if (!retry) { await page.waitForTimeout(2000); } // maybe passed, recheck next loop
+        if (!retry) { await page.waitForTimeout(2000); } // 成功した可能性があるので次のループで再確認
       }
       if (!solved) console.log('drag_letter attempts exhausted, moving on');
       await page.waitForTimeout(1000);
     } else if(challengeType === 'drag_shape'){
-      // Pattern: detect empty cell + top/bottom candidates, VLM picks TOP/BOT, try both
+      // パターン: 空きセルと上下の候補を検出し、VLM が選ぶ TOP/BOT から両方試す
       const { execSync: exP } = require('child_process');
       let pat = null;
       try {
@@ -186,7 +186,7 @@ function vlRaw(prompt){ fs.writeFileSync('/tmp/vl_prompt.txt', prompt);
         console.log('PATTERN:', JSON.stringify(pat).slice(0,200));
       } catch(e){ console.log('pattern detect failed'); }
       if (pat && pat.empty && (pat.top || pat.bottom)) {
-        // VLM 2-choice: TOP or BOTTOM?
+        // VLM の二択: TOP か BOTTOM か
         fs.writeFileSync('/tmp/vl_prompt.txt', `Two images: raw hCaptcha grid then SAME with EMPTY zone (blue box) and TOP/BOT candidate badges. Task: "${prompt}". The grid has a repeating pattern with ONE empty cell. Which candidate completes it? Reply ONLY JSON like {"pick":"TOP"}.`);
         let pick = null;
         try {
@@ -197,7 +197,7 @@ print(ask_multi(['/tmp/vl_shot.png','/tmp/pattern_overlay.png'], open('/tmp/vl_p
           if (m) pick = /TOP/i.test(m[1]) ? 'top' : 'bottom';
           console.log('VLM pick:', pick, '| raw:', out.slice(0,120));
         } catch(e){ console.log('VLM pick failed'); }
-        // order: VLM pick first, then the other (max 2 attempts = guaranteed coverage)
+        // VLM の選択を先に、次にもう一方を試す（最大 2 回で両方を網羅）
         const order = pick === 'bottom' ? ['bottom','top'] : ['top','bottom'];
         logAttempt({ prompt, type: challengeType, pat, vlmPick: pick });
         for (const which of order) {
@@ -221,14 +221,14 @@ print(ask_multi(['/tmp/vl_shot.png','/tmp/pattern_overlay.png'], open('/tmp/vl_p
       }
       await page.waitForTimeout(1000);
     } else if(isDragAct){
-      // legacy drag path (should not trigger now that types are split, kept as safety)
+      // 旧ドラッグ処理（種別分離後は通らないはずだが、念のため残す）
       const ans = vl(q); console.log('ANS:', JSON.stringify(ans));
       if(!ans) break;
       await bezierDrag(page, X(ans.sx), Y(ans.sy), X(ans.tx), Y(ans.ty));
       console.log('dragged');
       await page.waitForTimeout(1000);
     } else {
-      // SoM click: local blobs -> badge overlay -> VLM picks marker -> exact centroid click
+      // SoM クリック: ローカルで塊を検出 → バッジを重ねる → VLM がマーカーを選ぶ → 重心を正確にクリック
       const tried = triedByPrompt[prompt] || (triedByPrompt[prompt] = []);
       let clicked = false;
       for(let att=0; att<3 && !clicked; att++){
@@ -254,7 +254,7 @@ print(ask_multi(['/tmp/vl_shot.png','/tmp/pattern_overlay.png'], open('/tmp/vl_p
         clicked = true;
       }
       if(!clicked){
-        // smart-grid fallback: image-aligned cells -> VLM picks cells -> exact centers
+        // smart-grid のフォールバック: 画像に合わせたセル → VLM がセルを選ぶ → 中心を正確にクリック
         try {
           await page.screenshot({path:'/tmp/vl_shot.png', clip:bb});
           const { execSync: exS } = require('child_process');
@@ -267,7 +267,7 @@ from vl_solve import ask_multi
 print(ask_multi(['/tmp/vl_shot.png','/tmp/grid_shot.png'], open('/tmp/vl_prompt.txt').read()))"`, {timeout:180000, maxBuffer:64*1024*1024}).toString();
           const ms = [...out.matchAll(/"([A-H][1-8]|R\d+C\d+)"/gi)].map(m=>m[1].toUpperCase()).filter((v,i,a)=>a.indexOf(v)===i);
           let valid = ms.filter(c=>spec.cells[c]);
-          // B1: empty-cell guard — drop cells with no content
+          // B1: 空セルガードで中身のないセルを除外
           try {
             const { checkCellsHaveContent } = require(S+'/solver_core.js');
             const guard = checkCellsHaveContent('/tmp/vl_shot.png', spec);
@@ -290,7 +290,7 @@ print(ask_multi(['/tmp/vl_shot.png','/tmp/grid_shot.png'], open('/tmp/vl_prompt.
         } catch(e){ console.log('grid fallback unavailable'); }
       }
       if(!clicked){
-        // fallback: coords-VL (DOM grids / no-canvas tasks)
+        // フォールバック: 座標指定の VL（DOM グリッドや canvas を使わないタスク）
         console.log('SoM unavailable, coords fallback');
         await page.screenshot({path:'/tmp/vl_shot.png', clip:bb});
         const ans2 = vl(`hCaptcha 520x570. Task: "${prompt}". Reply ONLY JSON {"x":N,"y":N} 0-1000 coords of the correct item to click.`);

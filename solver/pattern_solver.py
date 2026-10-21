@@ -1,12 +1,12 @@
-"""Pattern drag solver: grid with 1 empty cell + 2 candidates on right.
-Usage: pattern_solver.py shot.png overlay.png
-  Prints {"empty": [x,y], "top": [x,y], "bottom": [x,y]} (0-1000) + saves overlay.
+"""パターンドラッグ用ソルバー: 空きセルが 1 つあるグリッドと右側の候補 2 つを扱う。
+使い方: pattern_solver.py shot.png overlay.png
+  {"empty": [x,y], "top": [x,y], "bottom": [x,y]}（0-1000）を出力し、オーバーレイを保存。
 
-Strategy:
-  1. Detect grid lines -> grid geometry (assume 4x4 or 3x3 in left ~75% of image)
-  2. For each grid cell, check content via saturation*variance*nonwhite
-  3. Emptiest cell = drop target
-  4. Right ~25% strip: find 2 largest blobs = top/bottom candidates
+方針:
+  1. グリッド線を検出して配置を求める（画像の左約 75% に 4x4 または 3x3 を想定）
+  2. 各セルの中身を彩度×ばらつき×白以外の割合で確認
+  3. 最も空に近いセルをドロップ先にする
+  4. 右約 25% の帯状領域で大きい塊を 2 つ探し、上下の候補にする
 """
 import sys
 import json
@@ -16,9 +16,9 @@ from collections import deque
 
 
 def find_grid_lines(gray, axis):
-    """Find strong vertical (axis=1) or horizontal (axis=0) lines via projection."""
+    """投影から強い縦線（axis=1）または横線（axis=0）を探す。"""
     H, W = gray.shape
-    if axis == 1:  # vertical lines: column means
+    if axis == 1:  # 縦線: 列ごとの平均
         proj = np.abs(np.diff(gray.astype(float), axis=1)).mean(axis=0)
     else:
         proj = np.abs(np.diff(gray.astype(float), axis=0)).mean(axis=1)
@@ -85,18 +85,18 @@ def main(inp, outp):
     arr = np.asarray(img)
     gray = arr.mean(axis=2)
 
-    # Focus on central band (skip header prompt + footer buttons)
+    # 中央の帯状領域を対象にする（上部のプロンプトと下部のボタンを除く）
     y_top, y_bot = int(H * 0.22), int(H * 0.88)
     band = gray[y_top:y_bot, :]
 
-    # Grid lines in left 75%
+    # 左 75% のグリッド線
     left = band[:, :int(W * 0.75)]
     vlines = find_grid_lines(left, axis=1)
     hlines = find_grid_lines(left, axis=0)
-    # grid boundaries
+    # グリッドの境界
     gx = [0] + vlines + [left.shape[1]]
     gy = [0] + hlines + [left.shape[0]]
-    # infer grid size: expect 3-5 lines
+    # グリッドサイズを推定: 線は 3-5 本を想定
     ncols = len(gx) - 1
     nrows = len(gy) - 1
 
@@ -105,7 +105,7 @@ def main(inp, outp):
         for ci in range(ncols):
             x0, x1 = gx[ci], gx[ci + 1]
             y0, y1 = gy[ri] + y_top, gy[ri + 1] + y_top
-            # inset 10% to avoid grid lines themselves
+            # グリッド線を避けるため 10% 内側に寄せる
             ix0 = int(x0 + (x1 - x0) * 0.12)
             ix1 = int(x0 + (x1 - x0) * 0.88)
             iy0 = int(y0 + (y1 - y0) * 0.12)
@@ -120,7 +120,7 @@ def main(inp, outp):
     cells.sort(key=lambda c: c["score"])
     empty = cells[0] if cells else None
 
-    # Right strip candidates (top/bottom by y)
+    # 右の帯状領域の候補（y 座標で上下を判定）
     strip = arr[y_top:y_bot, int(W * 0.75):]
     mx = strip.max(axis=2)
     mn = strip.min(axis=2)
@@ -130,7 +130,7 @@ def main(inp, outp):
     cmask = (opened < 180) & (sat > 0.08)
     blobs = comps(cmask, min_n=200)
     blobs = [b for b in blobs if b[2] < 0.3 * strip.size]
-    blobs.sort(key=lambda b: b[1])  # top to bottom
+    blobs.sort(key=lambda b: b[1])  # 上から下へ
     cands = []
     for i, (bx, by, n) in enumerate(blobs[:4]):
         cands.append({
@@ -138,10 +138,10 @@ def main(inp, outp):
             "y": round((by + y_top) / H * 1000),
         })
     top = cands[0] if len(cands) > 0 else None
-    # bottom = last blob (skip middle noise)
+    # 下の候補は最後の塊（途中のノイズを飛ばす）
     bottom = cands[-1] if len(cands) > 1 else None
 
-    # overlay
+    # オーバーレイを描画
     d = ImageDraw.Draw(img)
     if empty:
         ex, ey = empty["cx"] / 1000 * W, empty["cy"] / 1000 * H

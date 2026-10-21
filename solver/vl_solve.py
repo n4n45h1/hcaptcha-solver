@@ -1,9 +1,11 @@
 import base64, json, urllib.request, time, sys, re, os
 H={"Content-Type":"application/json","User-Agent":"Mozilla/5.0 Chrome/133"}
-API=os.environ.get("VL_API","https://freeapi.nanashi.site/v1/chat/completions")
+API=os.environ.get("VL_API", "").strip()
 MODELS = os.environ.get("VL_MODELS","MiniMaxAI/MiniMax-M3,zai-org/GLM-5.3-Flash").split(",")
 COORD = re.compile(r'"(?:(?:s|t)?[xy]|cells?|mark|from)"?\s*:\s*(\[?\s*"?[\w\d]+)')
 def _ask_multi(imgpaths, prompt, model):
+    if not API:
+        raise ValueError("VL_API に画像対応APIのURLを設定してください")
     imgs = []
     for p in imgpaths:
         imgs.append({"type":"image_url","image_url":{"url":"data:image/png;base64,"+base64.b64encode(open(p,'rb').read()).decode()}})
@@ -22,6 +24,8 @@ def ask_multi(imgpaths, prompt, model=None):
         last = t[:100]
     raise RuntimeError(last)
 def _ask(imgpath, prompt, model):
+    if not API:
+        raise ValueError("VL_API に画像対応APIのURLを設定してください")
     img = base64.b64encode(open(imgpath,'rb').read()).decode()
     body = {"model":model,"messages":[{"role":"user","content":[
       {"type":"text","text":prompt},
@@ -32,7 +36,7 @@ def _ask(imgpath, prompt, model):
     j = json.loads(r.read().decode())
     return j["choices"][0]["message"]["content"]
 def ask(imgpath, prompt, model=None):
-    """First model whose reply contains parseable coords wins (beats soft refusals)."""
+    """座標などを読み取れる返答が来るまで、モデルを順に試す。"""
     models = [model] if model else MODELS
     last = "no coords in any reply"
     for m in models:
